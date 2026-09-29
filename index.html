@@ -16,3 +16,68 @@ const demo={name:'NOVA DEMO',addr:'9xNOVA7demoTokenAddressQ4x8n2sL',liq:'$428K',
 const $=s=>document.querySelector(s);function scan(){let a=$('#input').value.trim();if(!a){$('#error').textContent='Paste a public Solana token address first.';return}$('#error').textContent='';$('#name').textContent=demo.name;$('#address').textContent=a.length>18?a.slice(0,9)+'...'+a.slice(-7):a;$('#liq').textContent=demo.liq;$('#holders').textContent=demo.holders;$('#txcount').textContent=demo.tx;$('#top10').textContent=demo.top;$('#socials').innerHTML='<a href="'+demo.website+'" target="_blank" rel="noopener">Website ↗</a><a href="'+demo.x+'" target="_blank" rel="noopener">X ↗</a>';$('#txlist').innerHTML=demo.txs.map(t=>'<div class="tx"><span class="kind">'+t[0]+'</span><div><b>'+t[1]+'</b><div class="addr">'+t[2]+'</div></div><span class="amount">'+t[3]+'</span><span class="when">on-chain</span></div>').join('')}
 $('#scan').onclick=scan;$('#refresh').onclick=scan;$('#demo').onclick=()=>{$('#input').value=demo.addr;scan()};document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));$('#'+b.dataset.view).classList.add('on')});function openView(id){const tab=document.querySelector('.tab[data-view=\"'+id+'\"]');if(tab) tab.click();document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'})}document.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>b.dataset.jump==='scanner'?document.getElementById('scanner').scrollIntoView({behavior:'smooth'}):openView(b.dataset.jump));$('#pro').onclick=()=>$('#modal').classList.add('show');$('#close').onclick=()=>$('#modal').classList.remove('show');$('#ok').onclick=()=>$('#modal').classList.remove('show');$('#input').addEventListener('keydown',e=>{if(e.key==='Enter')scan()});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#input').focus()}});
 </script></body></html>
+<script>
+scan = async function () {
+  const mint = $('#input').value.trim();
+  if (!mint) {
+    $('#error').textContent = 'Paste a public Solana token address first.';
+    return;
+  }
+  $('#error').textContent = 'Scanning...';
+  try {
+    const r = await fetch('/api/scan?mint=' + encodeURIComponent(mint));
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      $('#error').textContent = d.error || 'Scan failed';
+      return;
+    }
+    $('#error').textContent = '';
+
+    $('#name').textContent =
+      (d.name || 'Unknown token') + (d.symbol ? ' (' + d.symbol + ')' : '');
+
+    let sup = '';
+    if (d.supply != null && d.decimals != null) {
+      sup = ' · Supply: ' + (d.supply / Math.pow(10, d.decimals))
+        .toLocaleString('en-US', { maximumFractionDigits: 0 });
+    }
+    $('#address').textContent = mint.slice(0, 9) + '...' + mint.slice(-7) + sup;
+
+    const icon = document.querySelector('.tokenicon');
+    icon.textContent = 'N';
+    if (d.image) {
+      const img = document.createElement('img');
+      img.src = d.image;
+      img.alt = '';
+      img.style.cssText = 'width:100%;height:100%;border-radius:14px;object-fit:cover';
+      icon.textContent = '';
+      icon.appendChild(img);
+    }
+
+    const socials = $('#socials');
+    socials.textContent = '';
+    const addLink = (label, url) => {
+      if (url && /^https?:\/\//i.test(url)) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = label + ' ↗';
+        socials.appendChild(a);
+      }
+    };
+    addLink('Website', d.website);
+    addLink('X', d.links && d.links.twitter);
+
+    $('#liq').textContent = '—';
+    $('#holders').textContent = '—';
+    $('#txcount').textContent = '—';
+    $('#top10').textContent = '—';
+    $('#txlist').textContent = 'Recent transactions are coming in a next step.';
+  } catch (e) {
+    $('#error').textContent = 'Could not reach the scanner. Try again.';
+  }
+};
+$('#scan').onclick = scan;
+$('#refresh').onclick = scan;
+</script>
