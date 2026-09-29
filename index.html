@@ -17,6 +17,182 @@ const $=s=>document.querySelector(s);function scan(){let a=$('#input').value.tri
 $('#scan').onclick=scan;$('#refresh').onclick=scan;$('#demo').onclick=()=>{$('#input').value=demo.addr;scan()};document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));$('#'+b.dataset.view).classList.add('on')});function openView(id){const tab=document.querySelector('.tab[data-view=\"'+id+'\"]');if(tab) tab.click();document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'})}document.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>b.dataset.jump==='scanner'?document.getElementById('scanner').scrollIntoView({behavior:'smooth'}):openView(b.dataset.jump));$('#pro').onclick=()=>$('#modal').classList.add('show');$('#close').onclick=()=>$('#modal').classList.remove('show');$('#ok').onclick=()=>$('#modal').classList.remove('show');$('#input').addEventListener('keydown',e=>{if(e.key==='Enter')scan()});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#input').focus()}});
 </script></body></html>
 <script>
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+const fmt = (n) => Number(n).toLocaleString('en-US');
+const shortAddr = (s) => (s ? s.slice(0, 4) + '...' + s.slice(-4) : '');
+function ago(t) {
+  if (!t) return '—';
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - t);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h';
+  return Math.floor(s / 86400) + 'd';
+}
+
+function renderToken(d, mint) {
+  $('#name').textContent =
+    (d.name || 'Unknown token') + (d.symbol ? ' (' + d.symbol + ')' : '');
+  let sup = '';
+  if (d.supply != null && d.decimals != null) {
+    sup = ' · Supply: ' + (d.supply / Math.pow(10, d.decimals))
+      .toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
+  $('#address').textContent = mint.slice(0, 9) + '...' + mint.slice(-7) + sup;
+
+  const icon = document.querySelector('.tokenicon');
+  icon.textContent = 'N';
+  if (d.image) {
+    const img = document.createElement('img');
+    img.src = d.image;
+    img.alt = '';
+    img.style.cssText = 'width:100%;height:100%;border-radius:14px;object-fit:cover';
+    icon.textContent = '';
+    icon.appendChild(img);
+  }
+
+  const socials = $('#socials');
+  socials.textContent = '';
+  const addLink = (label, url) => {
+    if (url && /^https?:\/\//i.test(url)) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = label + ' ↗';
+      socials.appendChild(a);
+    }
+  };
+  addLink('Website', d.website);
+  addLink('X', d.links && d.links.twitter);
+}
+
+function renderStats(d) {
+  $('#liq').textContent = '—';
+  $('#holders').textContent =
+    d.holders != null ? fmt(d.holders) + (d.holdersCapped ? '+' : '') : '—';
+  $('#txcount').textContent =
+    d.tx24h != null ? fmt(d.tx24h) + (d.tx24hCapped ? '+' : '') : '—';
+  $('#top10').textContent =
+    d.top10Percent != null ? d.top10Percent.toFixed(1) + '%' : '—';
+}
+
+function renderTransactions(d) {
+  const sub = document.querySelector('#txView .title .muted');
+  if (sub) sub.textContent = 'Latest transactions that touch this token address. Failed ones are marked.';
+  const list = $('#txlist');
+  list.textContent = '';
+  const txs = d.recentTransactions;
+  if (!txs || !txs.length) {
+    list.textContent = 'No recent transactions found.';
+    return;
+  }
+  txs.forEach((t) => {
+    const row = el('div', 'tx');
+    row.appendChild(el('span', 'kind', ago(t.time)));
+    const mid = el('div');
+    mid.appendChild(el('b', t.failed ? 'bad' : 'good', t.failed ? 'Failed' : 'Success'));
+    mid.appendChild(el('div', 'addr', shortAddr(t.signature)));
+    row.appendChild(mid);
+    const link = el('a', 'amount', 'Solscan ↗');
+    link.href = 'https://solscan.io/tx/' + encodeURIComponent(t.signature);
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.style.color = 'var(--text)';
+    link.style.textDecoration = 'none';
+    row.appendChild(link);
+    row.appendChild(el('span', 'when', 'on-chain'));
+    list.appendChild(row);
+  });
+}
+
+function renderBubbles(d) {
+  const box = document.querySelector('#bubbleView .bubble');
+  box.textContent = '';
+  const tag = document.querySelector('#bubbleView .title > span');
+  if (tag) tag.textContent = 'Top 10 holders';
+  const note = document.querySelector('#bubbleView .info');
+  if (note) note.textContent = 'Each bubble is one of the 10 largest holder wallets. Bubble size shows its share of the total supply. Connections between wallets are not shown yet.';
+
+  const list = d.bubbles;
+  if (!list || !list.length) {
+    const m = el('div', 'muted', 'Holder data is not available for this token. Very large tokens like USDC are too big for this method.');
+    m.style.cssText = 'position:relative;z-index:2;padding:20px';
+    box.appendChild(m);
+    return;
+  }
+  const colors = ['#61a8ff', '#b88cff', '#b8ff3d', '#ffad5c', '#ff6f91'];
+  list.forEach((h, i) => {
+    const size = Math.min(150, 34 + Math.sqrt(h.percent) * 28);
+    let x = 50, y = 50;
+    if (i > 0) {
+      const angle = ((i - 1) / (list.length - 1)) * 2 * Math.PI - Math.PI / 2;
+      x = 50 + 38 * Math.cos(angle);
+      y = 50 + 36 * Math.sin(angle);
+    }
+    const c = colors[i % colors.length];
+    const b = el('div', 'b');
+    b.style.cssText =
+      'width:' + size + 'px;height:' + size + 'px;left:' + x + '%;top:' + y +
+      '%;transform:translate(-50%,-50%);font-size:11px;background:' + c +
+      '22;border-color:' + c + '66';
+    const inner = el('b', null, shortAddr(h.id));
+    inner.appendChild(el('small', null, h.percent.toFixed(1) + '% supply'));
+    b.appendChild(inner);
+    b.title = h.id;
+    box.appendChild(b);
+  });
+}
+
+function renderRisk(d) {
+  const box = document.querySelector('#riskView .risk');
+  box.textContent = '';
+  const r = d.risk;
+  if (!r) {
+    box.textContent = 'Not enough data to calculate a risk indicator.';
+    return;
+  }
+  const colors = { low: '#b8ff3d66', medium: '#ffad5c66', high: '#ff6f9166' };
+  const labels = {
+    low: 'Lower risk signal',
+    medium: 'Medium risk signal',
+    high: 'Higher risk signal'
+  };
+
+  const left = el('div');
+  const num = el('div', 'risknum', String(r.score));
+  num.style.borderColor = colors[r.level] || '#ffad5c66';
+  const sm = el('div');
+  sm.appendChild(el('small', null, '/ 100'));
+  num.appendChild(sm);
+  left.appendChild(num);
+  const wrap = el('div');
+  wrap.style.marginTop = '12px';
+  wrap.appendChild(el('div', 'risklabel', labels[r.level] || 'Risk signal'));
+  wrap.appendChild(el('div', 'muted', 'Always inspect the underlying checks rather than relying on one number.'));
+  left.appendChild(wrap);
+  box.appendChild(left);
+
+  const checks = el('div', 'checks');
+  (r.signals || []).forEach((s) => {
+    const row = el('div', 'check');
+    const text = el('span');
+    text.appendChild(document.createTextNode(s.label));
+    const det = el('div', 'muted', s.detail);
+    text.appendChild(det);
+    row.appendChild(text);
+    const cls = s.points === 0 ? 'good' : s.points <= 15 ? 'warn' : 'bad';
+    row.appendChild(el('b', cls, s.points > 0 ? '+' + s.points : 'OK'));
+    checks.appendChild(row);
+  });
+  if (!(r.signals || []).length) checks.textContent = 'No signals available.';
+  box.appendChild(checks);
+}
+
 scan = async function () {
   const mint = $('#input').value.trim();
   if (!mint) {
@@ -32,49 +208,13 @@ scan = async function () {
       return;
     }
     $('#error').textContent = '';
-
-    $('#name').textContent =
-      (d.name || 'Unknown token') + (d.symbol ? ' (' + d.symbol + ')' : '');
-
-    let sup = '';
-    if (d.supply != null && d.decimals != null) {
-      sup = ' · Supply: ' + (d.supply / Math.pow(10, d.decimals))
-        .toLocaleString('en-US', { maximumFractionDigits: 0 });
-    }
-    $('#address').textContent = mint.slice(0, 9) + '...' + mint.slice(-7) + sup;
-
-    const icon = document.querySelector('.tokenicon');
-    icon.textContent = 'N';
-    if (d.image) {
-      const img = document.createElement('img');
-      img.src = d.image;
-      img.alt = '';
-      img.style.cssText = 'width:100%;height:100%;border-radius:14px;object-fit:cover';
-      icon.textContent = '';
-      icon.appendChild(img);
-    }
-
-    const socials = $('#socials');
-    socials.textContent = '';
-    const addLink = (label, url) => {
-      if (url && /^https?:\/\//i.test(url)) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.textContent = label + ' ↗';
-        socials.appendChild(a);
-      }
-    };
-    addLink('Website', d.website);
-    addLink('X', d.links && d.links.twitter);
-
-    $('#liq').textContent = '—';
-    $('#holders').textContent = '—';
-    $('#txcount').textContent = '—';
-    $('#top10').textContent = '—';
-    $('#txlist').textContent = 'Recent transactions are coming in a next step.';
+    renderToken(d, mint);
+    renderStats(d);
+    renderTransactions(d);
+    renderBubbles(d);
+    renderRisk(d);
   } catch (e) {
+    console.error(e);
     $('#error').textContent = 'Could not reach the scanner. Try again.';
   }
 };
